@@ -9,15 +9,16 @@ from abc import abstractmethod
 from sage.all import QQ
 from sage.all import RR
 from sage.all import ZZ
-from sage.all import var
-from sage.all import log
 from sage.all import gcd
+from sage.all import log
+from sage.all import var
 from sage.all import ceil
+from sage.all import sqrt
 from sage.all import solve
 from sage.all import matrix
 from sage.all import Integer
-from sage.all import Sequence
 from sage.all import is_prime
+from sage.all import Sequence
 from sage.all import inverse_mod
 from sage.all import set_random_seed
 from sage.crypto.util import random_blum_prime
@@ -535,6 +536,74 @@ def trivariate_integer(N, e, delta, desired_solution, m=3, t=0):
     return None
 
 
+def simultaneous_modular_bivariate(N, e, delta, desired_solution, t=3):
+    """
+    Recovers the prime factors of a modulus and the private exponent if the private exponent is too small (Common Prime RSA version).
+    More information: Lu Y., et al., "Solving Linear Equations Modulo Unknown Divisors: Revisited" (Section 5.2)
+    More information: Zheng M., "Revisiting Small Private Key Attacks on Common Prime RSA"
+    :param N: the modulus
+    :param e: the public exponent
+    :param delta: a predicted bound on the private exponent (d < N^delta)
+    :param desired_solution: a list of desired roots for each variable including the common prime g
+    :param t: the t value to use for the small roots method (default: 3)
+    :return: the small solution (tuples) of the simultaneous_modular polynomials, or None if it was not found
+    """
+    gamma = 1 - log(e, N)
+
+    pr = ZZ["x", "y"]
+    x, y = ZZ["x", "y"].gens()
+    assert gcd(e, N - 1) == 1, f"attack fails since {gcd(e, N - 1) = }..."
+    f1 = x - inverse_mod(e, N - 1)
+    f2 = y - N
+    logging.debug(f"Generating target polynimials: {f1 = } and {f2 = }")
+    X = int(RR(N) ** delta)
+    Y = int(2 * RR(N) ** (1 / 2))
+    logging.info(f"Trying {t = }...")
+
+    logging.debug("Generating shifts...")
+    shifts = []
+    monomials = set()
+    r1 = 1
+    r2 = 2
+    g1 = delta
+    g2 = 0.5
+    for i1 in range(ceil(gamma * t / g1) + 1):
+        for i2 in range(ceil(gamma * t / g2)  + 1):
+            if g1 * i1 + g2 * i2 <= gamma * t:
+                shift = f1 ** i1 * f2 ** i2 * (N - 1) ** max(ceil(t - r1 * i1 - r2 * i2), 0)
+                shifts.append(shift)
+    for shift in shifts:
+        monomials.add(shift.lm())
+    logging.debug(f"The monomials are {monomials}")
+    xx, yy, g = desired_solution
+    for shift in shifts:
+        logging.debug(f"Test for shift polynomial {shift(xx, yy) % (g ** t)= }")
+
+    logging.info("Generating the lattice...")
+    L, monomials = create_lattice(pr, shifts, [X, Y])
+    logging.info("Reducing the lattice...")
+    L = reduce_lattice(L)
+    logging.debug(f"Test for original {f1(xx, yy) % g = } and {f2(xx, yy) % (g ** 2)= }")
+    polynomials = reconstruct_polynomials(L, None, None, monomials, [X, Y])
+    for poly in polynomials:
+        logging.debug(f"The polynomial after reconstructing from lattice vectors: @#$%")
+        logging.debug(f"Test for reconstructed {poly(xx, yy) % (g ** t) = }")
+        logging.debug(f"Test for reconstructed {poly(xx, yy) = } over Z")
+    start_time = time.perf_counter()
+    solution = find_roots(pr, polynomials, method="groebner")
+    end_time = time.perf_counter()
+    solution_time = end_time - start_time
+    logging.info(f"Finding roots within {solution_time:.3f} seconds...")
+    for xy in solution:
+        x0 = xy[x]
+        y0 = xy[y]
+        if x0 != 0 and y0 != 0:
+            logging.info(f"Found one possible solution: {x0 = } and {y0 = }")
+            return x0, y0
+
+    return None
+
+
 def generate_common_primes(modulus_bit_length, gamma, lift_ratio=1.2):
     """
     Generate primes for Common Prime RSA with given modulus bit length and gamma. 
@@ -581,8 +650,9 @@ def generate_CPRSA_instance(modulus_bit_length, gamma, delta, max_attempts=10):
         b = (q - 1) // g // 2
         LCM = 2 * g * a * b
         key_bit_length = int(modulus_bit_length * delta)
-        d = random_blum_prime(2 ** (key_bit_length - 1), 2 ** key_bit_length - 1)
-        e = inverse_mod(d, LCM)
+        while gcd(e, N - 1) != 1:
+            d = random_blum_prime(2 ** (key_bit_length - 1), 2 ** key_bit_length - 1)
+            e = inverse_mod(d, LCM)
         k = (e * d - 1) // 2 // g // a // b 
         ka = a * k
         kb = b * k
@@ -598,7 +668,7 @@ def generate_CPRSA_instance(modulus_bit_length, gamma, delta, max_attempts=10):
         logging.debug(f'N: {N}')
         logging.debug(f'e: {e}')
         logging.debug(f'd: {d}')
-        logging.debug(f"The desired solution is (x0, y0, z0) = {d, ka, kb}")
+        # logging.debug(f"The desired solution is {d = }, {ka = }, {kb = }...")
         return CPRSA_instance, desired_solution
     logging.warning(f"Failed to generate Common Prime RSA instance after {max_attempts} attempts...")
     return None
@@ -621,30 +691,65 @@ def attack_CPRSA_instance(modulus_bit_length, gamma, delta, s=3):
         return 0, 0
     N, e = CPRSA_instance[3], CPRSA_instance[4]
     print(f"The parameters: {N = } and {e = }")
-    start_time = time.perf_counter()
-    solution = trivariate_integer(N, e, delta, desired_solution, s)
-    end_time = time.perf_counter()
-    test_time = end_time - start_time
-    if solution is not None:
-        d, ka, kb = solution
+    
+    # update according to Lu et al.'s improved attack
+    if (1 - log(e, N)) < 0.3872: 
+        start_time = time.perf_counter()
+        solution = trivariate_integer(N, e, delta, desired_solution, s)
+        end_time = time.perf_counter()
+        test_time = end_time - start_time
+        if solution is not None:
+            d, ka, kb = solution
+            k = gcd(ka, kb)
+            a = ka // k
+            b = kb // k
+            g = (e * d - 1) // 2 // a // b // k
+            p = 2 * g * a + 1
+            q = 2 * g * b + 1
+            if p * q == N:
+                logging.info(f"Succeeded!")
+                logging.info(f"Found p = {p}")
+                logging.info(f"Found q = {q}")
+                print(f"Found primes: {p} and {q}")
+                return 1, test_time
+            else:
+                logging.info(f"Failed!")
+                return 0, test_time
+        else:
+            print(f"Sorry, cannot attack this CPRSA instance...")
+            return 0, test_time
+    else:
+        d, ka, kb = desired_solution
         k = gcd(ka, kb)
         a = ka // k
         b = kb // k
         g = (e * d - 1) // 2 // a // b // k
         p = 2 * g * a + 1
         q = 2 * g * b + 1
-        if p * q == N:
-            logging.info(f"Succeeded!")
-            logging.info(f"Found p = {p}")
-            logging.info(f"Found q = {q}")
-            print(f"Found primes: {p} and {q}")
-            return 1, test_time
+        y = p + q - 1
+        new_solution = [d, y, g]
+        start_time = time.perf_counter()
+        solution = simultaneous_modular_bivariate(N, e, delta, new_solution, t=s)
+        end_time = time.perf_counter()
+        test_time = end_time - start_time
+        if solution is not None:
+            x0, y0 = solution
+            d = x0
+            z = sqrt((y0 + 1) ** 2 - 4 * N)
+            p = (y0 + 1 + z) // 2
+            q = (y0 + 1 - z) // 2
+            if p * q == N:
+                logging.info(f"Succeeded!")
+                logging.info(f"Found p = {p}")
+                logging.info(f"Found q = {q}")
+                print(f"Found primes: {p} and {q}")
+                return 1, test_time
+            else:
+                logging.info(f"Failed!")
+                return 0, test_time
         else:
-            logging.info(f"Failed!")
+            print(f"Sorry, cannot attack this CPRSA instance...")
             return 0, test_time
-    else:
-        print(f"Sorry, cannot attack this CPRSA instance...")
-        return 0, test_time
 
 
 if __name__ == "__main__":

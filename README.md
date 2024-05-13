@@ -19,7 +19,9 @@ Note: If your SageMath Python version is older than 3.9.0, some features in give
 
 ## Usage
 
-The standard way to run the attack with the specific parameters $\ell$, $\gamma$, $\delta$, and $s$ requires passing them as command line arguments `sage -python attack.py <modulus_bit_length> <gamma> <delta> <s>`. For instance, to run the attack with $\ell=256$, $\gamma=0.3$, $\delta=0.14$, and $s=2$, please run `sage -python attack.py 256 0.3 0.14 2`:
+### JM Strategy
+
+The standard way (for $\gamma < 0.3872$) to run the attack with the specific parameters $\ell$, $\gamma$, $\delta$, and $s$ requires passing them as command line arguments `sage -python attack.py <modulus_bit_length> <gamma> <delta> <s>`. For instance, to run the attack with $\ell=256$, $\gamma=0.3$, $\delta=0.14$, and $s=2$, please run `sage -python attack.py 256 0.3 0.14 2`:
 
 ```commandline
 SPKA_CPRSA$ sage -python attack.py 256 0.3 0.14 2
@@ -45,6 +47,19 @@ The parameters: N = 615525693462138117351430341711140010395680081541803130654844
 Found primes: 221089799980331833665016302538931380589 and 278405287587620655679073975374948057175
 The attack costs 12.562 seconds...
 ```
+
+### LZPL Strategy
+
+An improved way (for $\gamma >= 0.3872$) to run the attack with the specific parameters $\ell$, $\gamma$, $\delta$, and $s$ requires passing them as command line arguments `sage -python attack.py <modulus_bit_length> <gamma> <delta> <s>`. For instance, to run the attack with $\ell=256$, $\gamma=0.45$, $\delta=0.3$, and $t=9$, please run `sage -python attack.py 256 0.45 0.3 9`:
+
+```commandline
+SPKA_CPRSA$ sage -python attack.py 256 0.45 0.3 9
+The parameters: N = 83196994066566645255513347521092230456833161712558088577574869116082244113083 and e = 181085677779487916012018080798162037073883
+Found primes: 301057612996661619004057531579089461239 and 276349078963464723175663997350452591197
+The attack costs 75.112 seconds...
+```
+
+This implementation automatically chooses LZPL strategy for larger $\gamma$.
 
 ## Notes
 
