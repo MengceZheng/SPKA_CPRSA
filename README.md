@@ -65,4 +65,4 @@ This implementation automatically chooses LZPL strategy for larger $\gamma$.
 
 All the details of the numerical attack experiments are recorded in the `attack.log` file.
 
-[^SPKACPRSA]: Zheng M., "Revisiting Small Private Key Attacks on Common Prime RSA" | [PDF](https://mengcezheng.github.io/assets/files/Zheng24.pdf)
+[^SPKACPRSA]: Zheng M., "Revisiting Small Private Key Attacks on Common Prime RSA" | [PDF](https://mengcezheng.github.io/docs/Zheng24a.pdf)
